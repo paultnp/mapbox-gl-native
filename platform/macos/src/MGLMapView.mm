@@ -1777,6 +1777,11 @@ public:
     }
 
     std::vector<MGLAnnotationTag> annotationTags = [self annotationTagsInRect:rect];
+    
+    if (!annotationTags.size()) {
+        annotationTags = [self shapeAnnotationTagsInRect:rect];
+    }
+    
     if (annotationTags.size())
     {
         NSMutableArray *annotations = [NSMutableArray arrayWithCapacity:annotationTags.size()];
@@ -2036,35 +2041,43 @@ public:
     queryRect = NSInsetRect(queryRect, -MGLAnnotationImagePaddingForHitTest,
                             -MGLAnnotationImagePaddingForHitTest);
     std::vector<MGLAnnotationTag> nearbyAnnotations = [self annotationTagsInRect:queryRect];
+    BOOL queryingShapeAnnotations = NO;
+    
+    if (!nearbyAnnotations.size()) {
+        nearbyAnnotations = [self shapeAnnotationTagsInRect:queryRect];
+        queryingShapeAnnotations = YES;
+    }
 
     if (nearbyAnnotations.size()) {
         // Assume that the user is fat-fingering an annotation.
         NSRect hitRect = NSInsetRect({ point, NSZeroSize },
                                      -MGLAnnotationImagePaddingForHitTest,
                                      -MGLAnnotationImagePaddingForHitTest);
-
-        // Filter out any annotation whose image is unselectable or for which
-        // hit testing fails.
-        auto end = std::remove_if(nearbyAnnotations.begin(), nearbyAnnotations.end(), [&](const MGLAnnotationTag annotationTag) {
-            id <MGLAnnotation> annotation = [self annotationWithTag:annotationTag];
-            NSAssert(annotation, @"Unknown annotation found nearby click");
-            if (!annotation) {
-                return true;
-            }
-
-            MGLAnnotationImage *annotationImage = [self imageOfAnnotationWithTag:annotationTag];
-            if (!annotationImage.selectable) {
-                return true;
-            }
-
-            // Filter out the annotation if the fattened finger didn’t land on a
-            // translucent or opaque pixel in the image.
-            NSRect annotationRect = [self frameOfImage:annotationImage.image
-                                  centeredAtCoordinate:annotation.coordinate];
-            return !!![annotationImage.image hitTestRect:hitRect withImageDestinationRect:annotationRect
-                                                 context:nil hints:nil flipped:NO];
-        });
-        nearbyAnnotations.resize(std::distance(nearbyAnnotations.begin(), end));
+        
+        if (!queryingShapeAnnotations) {
+            // Filter out any annotation whose image is unselectable or for which
+            // hit testing fails.
+            auto end = std::remove_if(nearbyAnnotations.begin(), nearbyAnnotations.end(), [&](const MGLAnnotationTag annotationTag) {
+                id <MGLAnnotation> annotation = [self annotationWithTag:annotationTag];
+                NSAssert(annotation, @"Unknown annotation found nearby click");
+                if (!annotation) {
+                    return true;
+                }
+                
+                MGLAnnotationImage *annotationImage = [self imageOfAnnotationWithTag:annotationTag];
+                if (!annotationImage.selectable) {
+                    return true;
+                }
+                
+                // Filter out the annotation if the fattened finger didn’t land on a
+                // translucent or opaque pixel in the image.
+                NSRect annotationRect = [self frameOfImage:annotationImage.image
+                                      centeredAtCoordinate:annotation.coordinate];
+                return !!![annotationImage.image hitTestRect:hitRect withImageDestinationRect:annotationRect
+                                                     context:nil hints:nil flipped:NO];
+            });
+            nearbyAnnotations.resize(std::distance(nearbyAnnotations.begin(), end));
+        }
     }
 
     MGLAnnotationTag hitAnnotationTag = MGLAnnotationTagNotFound;
@@ -2133,6 +2146,27 @@ public:
         { NSMinX(rect), NSHeight(self.bounds) - NSMaxY(rect) },
         { NSMaxX(rect), NSHeight(self.bounds) - NSMinY(rect) },
     });
+}
+
+- (std::vector<MGLAnnotationTag>)shapeAnnotationTagsInRect:(NSRect)rect {
+    mbgl::ScreenBox screenBox = {
+        { NSMinX(rect), NSHeight(self.bounds) - NSMaxY(rect) },
+        { NSMaxX(rect), NSHeight(self.bounds) - NSMinY(rect) },
+    };
+    
+    std::vector<MGLAnnotationTag> annotationsInRect;
+
+    if (_annotationTagsByAnnotation.size()) {
+        __block std::vector<std::string> layerIDs;
+        layerIDs.reserve(_annotationTagsByAnnotation.size());
+        for (const auto &annotation : _annotationTagsByAnnotation) {
+            layerIDs.push_back(mbgl::util::toString(annotation.second));
+        }
+        return annotationsInRect = _rendererFrontend->getRenderer()->queryShapeAnnotations(screenBox, layerIDs);
+    }
+    
+    return annotationsInRect;
+                       
 }
 
 - (id <MGLAnnotation>)selectedAnnotation {
@@ -2300,6 +2334,13 @@ public:
     if (!annotation) {
         return NSZeroRect;
     }
+    if ([annotation isKindOfClass:[MGLMultiPoint class]]) {
+        CLLocationCoordinate2D origin = annotation.coordinate;
+        CGPoint originPoint = [self convertCoordinate:origin toPointToView:self];
+        return CGRectMake(originPoint.x, originPoint.y, MGLAnnotationImagePaddingForHitTest, MGLAnnotationImagePaddingForHitTest);
+        
+    }
+    
     NSImage *image = [self imageOfAnnotationWithTag:annotationTag].image;
     if (!image) {
         image = [self dequeueReusableAnnotationImageWithIdentifier:MGLDefaultStyleMarkerSymbolName].image;

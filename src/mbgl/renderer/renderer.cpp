@@ -56,6 +56,24 @@ std::vector<Feature> Renderer::queryRenderedFeatures(const ScreenBox& box, const
 AnnotationIDs Renderer::queryPointAnnotations(const ScreenBox& box) const {
     RenderedQueryOptions options;
     options.layerIDs = {{ AnnotationManager::PointLayerID }};
+    return queryAnnotations(box, options);
+}
+
+AnnotationIDs Renderer::queryShapeAnnotations(const ScreenBox& box, const std::vector<std::string> layerIDs) const {
+    RenderedQueryOptions options;
+    __block std::vector<std::string> shapeLayerIDs;
+    if (layerIDs.size()) {
+        shapeLayerIDs.reserve(layerIDs.size());
+        for (const auto &layerID : layerIDs) {
+            shapeLayerIDs.push_back(AnnotationManager::ShapeLayerID + layerID);
+        }
+        options.layerIDs = {{ shapeLayerIDs }};
+    }
+    
+    return queryAnnotations(box, options);
+}
+    
+AnnotationIDs Renderer::queryAnnotations(const ScreenBox& box,  const RenderedQueryOptions& options) const {
     auto features = queryRenderedFeatures(box, options);
     std::set<AnnotationID> set;
     for (auto &feature : features) {

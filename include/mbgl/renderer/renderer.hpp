@@ -40,6 +40,7 @@ public:
     std::vector<Feature> queryRenderedFeatures(const ScreenBox& box, const RenderedQueryOptions& options = {}) const;
     std::vector<Feature> querySourceFeatures(const std::string& sourceID, const SourceQueryOptions& options = {}) const;
     AnnotationIDs queryPointAnnotations(const ScreenBox& box) const;
+    AnnotationIDs queryShapeAnnotations(const ScreenBox& box, const std::vector<std::string> layerIDs) const;
 
     // Debug
     void dumpDebugLogs();
@@ -50,6 +51,7 @@ public:
 private:
     class Impl;
     std::unique_ptr<Impl> impl;
+    AnnotationIDs queryAnnotations(const ScreenBox&,  const RenderedQueryOptions& options = {}) const;
 };
 
 } // namespace mbgl
